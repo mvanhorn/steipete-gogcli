@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 
 	"github.com/99designs/keyring"
@@ -15,6 +16,8 @@ import (
 	gogapi "github.com/openclaw/gogcli/internal/googleapi"
 	"github.com/openclaw/gogcli/internal/zoom"
 )
+
+var safeServiceAccountEmail = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._+-]*@[A-Za-z0-9][A-Za-z0-9.-]*$`)
 
 func Format(err error) string {
 	if err == nil {
@@ -86,6 +89,15 @@ func Format(err error) string {
 			"OAuth client credentials missing (OAuth client ID JSON).\nDownload from: https://console.cloud.google.com/apis/credentials (Create Credentials → OAuth client ID → Desktop app → Download JSON)\nThen run: gog auth credentials <credentials.json> (expected at %s)",
 			credErr.Path,
 		)
+	}
+
+	var missing *config.ServiceAccountKeyMissingError
+	if errors.As(err, &missing) {
+		email := missing.Email
+		if len(email) > 254 || !safeServiceAccountEmail.MatchString(email) {
+			email = "<email>"
+		}
+		return fmt.Sprintf("Service account key missing from keyring. Check the configured keyring backend or restore the original JSON with: gog auth service-account set %s --key <service-account.json> --keyring\nIf you passed --service-account to Keep, replace that file with the newly registered reference or omit the flag and select the registered account.", email)
 	}
 
 	if errors.Is(err, keyring.ErrKeyNotFound) {

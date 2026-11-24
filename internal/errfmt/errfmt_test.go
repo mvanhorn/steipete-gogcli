@@ -2,6 +2,7 @@ package errfmt
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -62,7 +63,7 @@ func TestFormat_CredentialsMissing(t *testing.T) {
 
 func TestFormat_KeyNotFound(t *testing.T) {
 	got := Format(keyring.ErrKeyNotFound)
-	if !containsAll(got, "Secret not found", "gog auth add") {
+	if !containsAll(got, "refresh token missing", "gog auth add") {
 		t.Fatalf("unexpected: %q", got)
 	}
 }
@@ -339,4 +340,19 @@ func containsAll(s string, subs ...string) bool {
 	}
 
 	return true
+}
+
+func TestFormat_ServiceAccountKeyMissing(t *testing.T) {
+	for _, email := range []string{"user@example.com", "", "-flag@example.com", "user;id@example.com", "user\n@example.com", strings.Repeat("a", 255) + "@example.com"} {
+		missing := &config.ServiceAccountKeyMissingError{Email: email, Cause: keyring.ErrKeyNotFound}
+		want := email
+		if email != "user@example.com" {
+			want = "<email>"
+		}
+		for _, err := range []error{missing, fmt.Errorf("read: %w", missing)} {
+			if got := Format(err); !containsAll(got, "If you passed --service-account to Keep, replace that file", "configured keyring backend", "gog auth service-account set "+want+" --key <service-account.json> --keyring") {
+				t.Fatalf("unexpected diagnostic: %q", got)
+			}
+		}
+	}
 }

@@ -20,7 +20,23 @@ var (
 	errServiceAccountSecretsMissing   = errors.New("service account key is stored in the keyring, but no keyring is available")
 )
 
+const maxServiceAccountEmailLen = 254
+
 const serviceAccountKeyringKeyPrefix = "service-account/"
+
+// ServiceAccountKeyMissingError indicates that a managed reference has lost its key.
+type ServiceAccountKeyMissingError struct {
+	Email string
+	Cause error
+}
+
+func (e *ServiceAccountKeyMissingError) Error() string {
+	return fmt.Sprintf("service account key missing from keyring: %v", e.Cause)
+}
+
+func (e *ServiceAccountKeyMissingError) Unwrap() error {
+	return e.Cause
+}
 
 // ServiceAccountSecrets is the keyring a service account key can be stored in instead of the plain file.
 type ServiceAccountSecrets interface {
@@ -226,6 +242,11 @@ func (s *ServiceAccountStore) Read(email string, includeKeepFallback bool) (Serv
 
 	data, err = s.ResolveKey(data)
 	if err != nil {
+		var missing *ServiceAccountKeyMissingError
+		if errors.As(err, &missing) && missing.Email == "" && len(email) <= maxServiceAccountEmailLen {
+			missing.Email = strings.ToLower(strings.TrimSpace(email))
+		}
+
 		return ServiceAccountFile{}, false, err
 	}
 
@@ -333,6 +354,15 @@ func (s *ServiceAccountStore) ResolveKey(data []byte) ([]byte, error) {
 	}
 
 	data, err = store.GetSecret(key)
+	if errors.Is(err, keyring.ErrKeyNotFound) {
+		suffix := strings.TrimPrefix(key, serviceAccountKeyringKeyPrefix)
+		email, _, _ := strings.Cut(suffix[:min(len(suffix), maxServiceAccountEmailLen+1)], "/")
+		if len(email) > maxServiceAccountEmailLen {
+			email = ""
+		}
+		return nil, &ServiceAccountKeyMissingError{Email: strings.ToLower(strings.TrimSpace(email)), Cause: err}
+	}
+
 	if err != nil {
 		return nil, fmt.Errorf("read service account key from keyring: %w", err)
 	}

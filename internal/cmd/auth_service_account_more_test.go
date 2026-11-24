@@ -316,6 +316,7 @@ func TestAuthStatus_ShowsServiceAccountPreferred(t *testing.T) {
 }
 
 func TestAuthServiceAccountSet_KeyringStoresNoKeyOnDisk(t *testing.T) {
+	t.Setenv("GOG_JSON", "false")
 	store := newMemSecretsStore()
 	runtime := runtimeWithAuthStore(store)
 
@@ -355,14 +356,33 @@ func TestAuthServiceAccountSet_KeyringStoresNoKeyOnDisk(t *testing.T) {
 		t.Fatalf("keyring did not retain the key")
 	}
 
+	delete(store.secrets, ref.Key)
+	var diagnostic string
 	out := captureStdout(t, func() {
+		diagnostic = captureStderr(t, func() {
+			err := executeWithRuntime([]string{"auth", "service-account", "status", "user@example.com"}, runtime)
+			if ExitCode(err) != 4 {
+				t.Fatalf("status exit code = %d: %v", ExitCode(err), err)
+			}
+		})
+	})
+	if out != "" || !strings.Contains(diagnostic, "Service account key missing from keyring") ||
+		!strings.Contains(diagnostic, "gog auth service-account set user@example.com --key <service-account.json> --keyring") ||
+		strings.Contains(diagnostic, "refresh token missing") || strings.Contains(diagnostic, "gog auth add") {
+		t.Fatalf("missing key status: stdout=%q stderr=%q", out, diagnostic)
+	}
+
+	if err := executeWithRuntime([]string{"auth", "service-account", "set", "user@example.com", "--key", keyPath, "--keyring"}, runtime); err != nil {
+		t.Fatalf("restore: %v", err)
+	}
+	out = captureStdout(t, func() {
 		_ = captureStderr(t, func() {
 			if err := executeWithRuntime([]string{"auth", "service-account", "status", "user@example.com"}, runtime); err != nil {
 				t.Fatalf("status: %v", err)
 			}
 		})
 	})
-	if !strings.Contains(out, "client_email\tsvc@example.com") {
+	if !strings.Contains(out, "exists\ttrue") || !strings.Contains(out, "stored\ttrue") || !strings.Contains(out, "client_email\tsvc@example.com") {
 		t.Fatalf("status does not read the key from the keyring: %q", out)
 	}
 }

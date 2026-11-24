@@ -2,6 +2,8 @@
 
 ## 0.48.2 - Unreleased
 
+- Auth: show how to restore a missing service-account keyring key, including when Keep uses a copied reference. (#1352) Thanks @mvanhorn.
+
 - Dependencies: refresh the MCP and Google API clients, networking libraries, and tracking-worker tooling while preserving the Go 1.26 minimum, 24-hour worker cooldown, and security overrides.
 
 ## 0.48.1 - 2026-11-15

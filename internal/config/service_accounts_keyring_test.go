@@ -218,3 +218,35 @@ func TestServiceAccountKeyringFailedReferenceWriteKeepsOldKey(t *testing.T) {
 		t.Fatalf("failed write leaked %d keys", len(secrets))
 	}
 }
+
+type failingServiceAccountSecrets struct {
+	memoryServiceAccountSecrets
+	err error
+}
+
+func (s failingServiceAccountSecrets) GetSecret(string) ([]byte, error) {
+	return nil, s.err
+}
+
+func TestServiceAccountStoreMissingKey(t *testing.T) {
+	const email = "user@example.com"
+	store := NewServiceAccountStore(Layout{DataDir: t.TempDir(), ExplicitData: true})
+	secrets := failingServiceAccountSecrets{err: keyring.ErrKeyNotFound}
+	store.WithSecrets(func() (ServiceAccountSecrets, error) { return secrets, nil })
+	_, resolveErr := store.ResolveKey([]byte(`{"gog_keyring_key":"service-account/User@Example.com/id"}`))
+	ref := []byte(`{"gog_keyring_key":"service-account/"}`)
+	if _, err := store.Write(email, ref); err != nil {
+		t.Fatal(err)
+	}
+	_, _, readErr := store.Read(email, false)
+	var missing *ServiceAccountKeyMissingError
+	for _, err := range []error{resolveErr, readErr} {
+		if !errors.As(err, &missing) || missing.Email != email || !errors.Is(err, keyring.ErrKeyNotFound) {
+			t.Fatalf("unexpected missing key error: %#v", err)
+		}
+	}
+	secrets.err = os.ErrPermission
+	if _, err := store.ResolveKey(ref); !errors.Is(err, os.ErrPermission) || errors.As(err, &missing) {
+		t.Fatalf("unexpected backend error: %v", err)
+	}
+}
